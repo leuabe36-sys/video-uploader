@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Drive → TikTok</title>
+<style>
+  :root { --bg:#0f0f12; --card:#18181c; --border:#2a2a2f; --accent:#fe2c55; --text:#f2f2f2; --muted:#9a9aa2; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); padding:24px; }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.sub { color: var(--muted); margin-top:0; margin-bottom:24px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:16px; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .status { font-size:13px; padding:3px 10px; border-radius:999px; }
+  .status.on { background:#1e3a2a; color:#5fd88a; }
+  .status.off { background:#3a1e1e; color:#e07070; }
+  button { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:10px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:0.4; cursor:not-allowed; }
+  button.secondary { background:#2a2a2f; }
+  .videos { display:flex; flex-direction:column; gap:8px; margin-top:12px; max-height: 320px; overflow-y:auto; }
+  .video-item { display:flex; align-items:center; gap:10px; padding:10px; border-radius:8px; border:1px solid var(--border); cursor:pointer; }
+  .video-item.selected { border-color:var(--accent); background:#241419; }
+  .video-item img { width:48px; height:48px; object-fit:cover; border-radius:6px; background:#000; }
+  .video-item .name { font-size:13px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  textarea { width:100%; background:#0f0f12; border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px; font-size:14px; resize:vertical; min-height:60px; }
+  #log { font-size:13px; color:var(--muted); margin-top:10px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Drive → TikTok</h1>
+  <p class="sub">Pull a video from Google Drive and publish it to TikTok as a private draft.</p>
+
+  <div class="card">
+    <div class="row">
+      <span>Google Drive</span>
+      <span id="googleStatus" class="status off">Not connected</span>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <button id="connectGoogle" class="secondary">Connect Google Drive</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span>TikTok</span>
+      <span id="tiktokStatus" class="status off">Not connected</span>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <button id="connectTiktok" class="secondary">Connect TikTok</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span>Select a video</span>
+      <button id="refreshVideos" class="secondary">Refresh</button>
+    </div>
+    <div id="videos" class="videos"></div>
+  </div>
+
+  <div class="card">
+    <label style="font-size:13px; color:var(--muted);">Caption</label>
+    <textarea id="caption" placeholder="Write a caption..."></textarea>
+    <div class="row" style="margin-top:12px;">
+      <button id="publishBtn" disabled>Publish to TikTok</button>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+let selectedFileId = null;
+
+async function refreshStatus() {
+  const res = await fetch('/api/status');
+  const data = await res.json();
+  setStatus('googleStatus', data.google);
+  setStatus('tiktokStatus', data.tiktok);
+  document.getElementById('publishBtn').disabled = !(data.google && data.tiktok && selectedFileId);
+  if (data.google) loadVideos();
+}
+
+function setStatus(elId, connected) {
+  const el = document.getElementById(elId);
+  el.textContent = connected ? 'Connected' : 'Not connected';
+  el.className = 'status ' + (connected ? 'on' : 'off');
+}
+
+async function loadVideos() {
+  const res = await fetch('/api/drive/videos');
+  if (!res.ok) return;
+  const files = await res.json();
+  const container = document.getElementById('videos');
+  container.innerHTML = '';
+  if (!files.length) {
+    container.innerHTML = '<div style="color:var(--muted); font-size:13px;">No videos found in your Drive.</div>';
+    return;
+  }
+  files.forEach(f => {
+    const div = document.createElement('div');
+    div.className = 'video-item';
+    div.dataset.id = f.id;
+    div.innerHTML = `
+      <img src="${f.thumbnailLink || ''}" onerror="this.style.visibility='hidden'"/>
+      <span class="name">${f.name}</span>
+    `;
+    div.onclick = () => {
+      document.querySelectorAll('.video-item').forEach(el => el.classList.remove('selected'));
+      div.classList.add('selected');
+      selectedFileId = f.id;
+      refreshStatus();
+    };
+    container.appendChild(div);
+  });
+}
+
+document.getElementById('connectGoogle').onclick = () => window.location.href = '/auth/google';
+document.getElementById('connectTiktok').onclick = () => window.location.href = '/auth/tiktok';
+document.getElementById('refreshVideos').onclick = loadVideos;
+
+document.getElementById('publishBtn').onclick = async () => {
+  const log = document.getElementById('log');
+  const btn = document.getElementById('publishBtn');
+  btn.disabled = true;
+  log.textContent = 'Uploading to TikTok... this can take a minute.';
+  try {
+    const res = await fetch('/api/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId: selectedFileId, caption: document.getElementById('caption').value }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data.error || data));
+    log.textContent = 'Success! publish_id: ' + data.publish_id + '\n' + data.note;
+  } catch (err) {
+    log.textContent = 'Error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+refreshStatus();
+</script>
+</body>
+</html>
