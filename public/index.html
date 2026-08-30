@@ -26,12 +26,16 @@
   .video-item .name { font-size:13px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   textarea { width:100%; background:#0f0f12; border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px; font-size:14px; resize:vertical; min-height:60px; }
   #log { font-size:13px; color:var(--muted); margin-top:10px; white-space:pre-wrap; }
+  .banner { background:#2a2410; border:1px solid #5c4d1a; color:#e0c56b; border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:16px; }
+  .link-btn { background:none; border:none; color:var(--muted); font-size:12px; text-decoration:underline; cursor:pointer; padding:0; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Drive → TikTok</h1>
   <p class="sub">Pull a video from Google Drive and publish it to TikTok as a private draft.</p>
+
+  <div id="setupBanner" class="banner" style="display:none;"></div>
 
   <div class="card">
     <div class="row">
@@ -51,6 +55,11 @@
     <div class="row" style="margin-top:10px;">
       <button id="connectTiktok" class="secondary">Connect TikTok</button>
     </div>
+  </div>
+
+  <div class="row" style="margin-bottom:16px;">
+    <span></span>
+    <button id="signOutAll" class="link-btn">Sign out of everything</button>
   </div>
 
   <div class="card">
@@ -80,6 +89,21 @@ async function refreshStatus() {
   setStatus('googleStatus', data.google);
   setStatus('tiktokStatus', data.tiktok);
   document.getElementById('publishBtn').disabled = !(data.google && data.tiktok && selectedFileId);
+
+  document.getElementById('connectGoogle').disabled = !data.googleConfigured;
+  document.getElementById('connectTiktok').disabled = !data.tiktokConfigured;
+
+  const banner = document.getElementById('setupBanner');
+  const missing = [];
+  if (!data.googleConfigured) missing.push('Google');
+  if (!data.tiktokConfigured) missing.push('TikTok');
+  if (missing.length) {
+    banner.style.display = 'block';
+    banner.textContent = `${missing.join(' and ')} API credentials aren't set on the server yet. Add them in your host's Environment settings, then reload this page.`;
+  } else {
+    banner.style.display = 'none';
+  }
+
   if (data.google) loadVideos();
 }
 
@@ -120,6 +144,12 @@ async function loadVideos() {
 document.getElementById('connectGoogle').onclick = () => window.location.href = '/auth/google';
 document.getElementById('connectTiktok').onclick = () => window.location.href = '/auth/tiktok';
 document.getElementById('refreshVideos').onclick = loadVideos;
+document.getElementById('signOutAll').onclick = async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  selectedFileId = null;
+  document.getElementById('videos').innerHTML = '';
+  refreshStatus();
+};
 
 document.getElementById('publishBtn').onclick = async () => {
   const log = document.getElementById('log');
